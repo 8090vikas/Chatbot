@@ -317,4 +317,4 @@ For support and questions:
 
 **🎉 Your AI Chatbot is production-ready!**
 
-Built with ❤️ by [Your Name]
+Built with ❤️ by Vikas Gupta
