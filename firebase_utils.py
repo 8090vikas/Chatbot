@@ -15,8 +15,29 @@ firebase_initialized = False
 
 def get_firebase_credentials():
     """Get Firebase credentials from environment variables or JSON file"""
-    # Try environment variables first (for production)
+    # Try Streamlit secrets first (for Streamlit Cloud)
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and 'FIREBASE_PROJECT_ID' in st.secrets:
+            print("🔑 Using Streamlit secrets for Firebase credentials")
+            return {
+                "type": "service_account",
+                "project_id": st.secrets["FIREBASE_PROJECT_ID"],
+                "private_key_id": st.secrets.get("FIREBASE_PRIVATE_KEY_ID", ""),
+                "private_key": st.secrets["FIREBASE_PRIVATE_KEY"],
+                "client_email": st.secrets["FIREBASE_CLIENT_EMAIL"],
+                "client_id": st.secrets.get("FIREBASE_CLIENT_ID", ""),
+                "auth_uri": st.secrets.get("FIREBASE_AUTH_URI", "https://accounts.google.com/o/oauth2/auth"),
+                "token_uri": st.secrets.get("FIREBASE_TOKEN_URI", "https://oauth2.googleapis.com/token"),
+                "auth_provider_x509_cert_url": st.secrets.get("FIREBASE_AUTH_PROVIDER_X509_CERT_URL", "https://www.googleapis.com/oauth2/v1/certs"),
+                "client_x509_cert_url": st.secrets.get("FIREBASE_CLIENT_X509_CERT_URL", "")
+            }
+    except Exception as e:
+        print(f"⚠️ Could not access Streamlit secrets: {e}")
+    
+    # Try environment variables (for other deployments)
     if os.getenv('FIREBASE_PROJECT_ID'):
+        print("🔑 Using environment variables for Firebase credentials")
         return {
             "type": "service_account",
             "project_id": os.getenv('FIREBASE_PROJECT_ID'),
@@ -24,15 +45,19 @@ def get_firebase_credentials():
             "private_key": os.getenv('FIREBASE_PRIVATE_KEY'),
             "client_email": os.getenv('FIREBASE_CLIENT_EMAIL'),
             "client_id": os.getenv('FIREBASE_CLIENT_ID'),
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token"
+            "auth_uri": os.getenv('FIREBASE_AUTH_URI', "https://accounts.google.com/o/oauth2/auth"),
+            "token_uri": os.getenv('FIREBASE_TOKEN_URI', "https://oauth2.googleapis.com/token"),
+            "auth_provider_x509_cert_url": os.getenv('FIREBASE_AUTH_PROVIDER_X509_CERT_URL', "https://www.googleapis.com/oauth2/v1/certs"),
+            "client_x509_cert_url": os.getenv('FIREBASE_CLIENT_X509_CERT_URL', "")
         }
     
     # Fallback to JSON file (for development)
     elif os.path.exists("firebase_service_account.json"):
+        print("🔑 Using local JSON file for Firebase credentials")
         with open("firebase_service_account.json", 'r') as f:
             return json.load(f)
     
+    print("❌ No Firebase credentials found")
     return None
 
 def initialize_firebase():
@@ -46,6 +71,8 @@ def initialize_firebase():
         cred_data = get_firebase_credentials()
         
         if cred_data:
+            print(f"🔧 Initializing Firebase with project: {cred_data.get('project_id', 'Unknown')}")
+            
             # Create temporary file for credentials
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
@@ -59,39 +86,61 @@ def initialize_firebase():
                 db = firestore.client()
                 firebase_initialized = True
                 print("✅ Firebase initialized successfully")
+                
+                # Test the connection
+                try:
+                    # Try to read from Firestore to test connection
+                    test_doc = db.collection("test").document("connection_test").get()
+                    print("✅ Firebase connection test successful")
+                except Exception as test_e:
+                    print(f"⚠️ Firebase connection test failed: {test_e}")
+                
                 return True
             finally:
                 # Clean up temporary file
-                os.unlink(temp_file_path)
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
         else:
             print("⚠️ Firebase credentials not found. Using local file storage.")
             return False
     except Exception as e:
         print(f"❌ Firebase initialization failed: {e}. Using local file storage.")
+        import traceback
+        print(f"Full error: {traceback.format_exc()}")
         return False
 
 def store_user_data(username, data):
     if not initialize_firebase():
+        print(f"⚠️ Firebase not initialized, using local storage for user: {username}")
         return store_user_data_local(username, data)
     
     try:
+        print(f"💾 Storing user data for: {username}")
         db.collection("users").document(username).set(data)
+        print(f"✅ User data stored successfully for: {username}")
         return True
     except gcp_exceptions.NotFound as e:
-        print(f"Firestore database not found. Using local file storage: {e}")
+        print(f"❌ Firestore database not found. Using local file storage: {e}")
         return store_user_data_local(username, data)
     except Exception as e:
-        print(f"Error storing user data: {e}. Using local file storage.")
+        print(f"❌ Error storing user data for {username}: {e}. Using local file storage.")
+        import traceback
+        print(f"Full error: {traceback.format_exc()}")
         return store_user_data_local(username, data)
 
 def get_user_data(username):
     if not initialize_firebase():
+        print(f"⚠️ Firebase not initialized, using local storage for user: {username}")
         return get_user_data_local(username)
     
     try:
+        print(f"🔍 Getting user data for: {username}")
         doc = db.collection("users").document(username).get()
         if doc.exists:
             data = doc.to_dict()
+            print(f"✅ User data found for: {username}")
             
             # Convert Firebase chat history format back to tuple format
             if "chat_history" in data and isinstance(data["chat_history"], list):
@@ -108,12 +157,16 @@ def get_user_data(username):
                 data["chat_history"] = converted_chat_history
             
             return data
-        return None
+        else:
+            print(f"ℹ️ No user data found for: {username}")
+            return None
     except gcp_exceptions.NotFound as e:
-        print(f"Firestore database not found. Using local file storage: {e}")
+        print(f"❌ Firestore database not found. Using local file storage: {e}")
         return get_user_data_local(username)
     except Exception as e:
-        print(f"Error getting user data: {e}. Using local file storage.")
+        print(f"❌ Error getting user data for {username}: {e}. Using local file storage.")
+        import traceback
+        print(f"Full error: {traceback.format_exc()}")
         return get_user_data_local(username)
 
 def save_chat_history(username, chat_history):

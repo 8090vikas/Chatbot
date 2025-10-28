@@ -1,5 +1,5 @@
 import streamlit as st
-from firebase_utils import get_user_data, store_user_data
+from firebase_utils import get_user_data, store_user_data, initialize_firebase
 import time
 from oauth_handler import demo_oauth_login
 
@@ -220,6 +220,50 @@ def auth_page():
         st.session_state.auth_page = "login"
 
     custom_css()
+    
+    # Debug section (only show in development or when there are issues)
+    if st.checkbox("🔧 Debug Firebase Connection", help="Check this to see Firebase connection status"):
+        st.markdown("### 🔍 Firebase Debug Information")
+        
+        # Test Firebase initialization
+        st.write("**Testing Firebase initialization...**")
+        firebase_status = initialize_firebase()
+        st.write(f"Firebase initialized: {firebase_status}")
+        
+        # Check Streamlit secrets
+        try:
+            if hasattr(st, 'secrets'):
+                st.write("**Streamlit Secrets Available:**")
+                if 'FIREBASE_PROJECT_ID' in st.secrets:
+                    st.write(f"✅ FIREBASE_PROJECT_ID: {st.secrets['FIREBASE_PROJECT_ID']}")
+                else:
+                    st.write("❌ FIREBASE_PROJECT_ID not found in secrets")
+                
+                if 'FIREBASE_CLIENT_EMAIL' in st.secrets:
+                    st.write(f"✅ FIREBASE_CLIENT_EMAIL: {st.secrets['FIREBASE_CLIENT_EMAIL']}")
+                else:
+                    st.write("❌ FIREBASE_CLIENT_EMAIL not found in secrets")
+            else:
+                st.write("❌ Streamlit secrets not available")
+        except Exception as e:
+            st.write(f"❌ Error accessing secrets: {e}")
+        
+        # Test user data operations
+        test_username = "test_user_debug"
+        st.write(f"**Testing user data operations with username: {test_username}**")
+        
+        # Test storing user data
+        test_data = {"password": "test123", "chat_history": [], "test": True}
+        store_result = store_user_data(test_username, test_data)
+        st.write(f"Store user data result: {store_result}")
+        
+        # Test getting user data
+        get_result = get_user_data(test_username)
+        st.write(f"Get user data result: {get_result is not None}")
+        if get_result:
+            st.write(f"Retrieved data keys: {list(get_result.keys())}")
+        
+        st.markdown("---")
     
     # Add CSS for the toggle buttons
     st.markdown("""
